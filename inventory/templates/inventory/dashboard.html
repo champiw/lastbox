@@ -1,0 +1,49 @@
+{% extends "inventory/base.html" %}
+
+{% block title %}Dashboard - lastbox{% endblock %}
+
+{% block content %}
+<h2>Your supplies</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Supply</th>
+      <th>Quantity</th>
+      <th>Estimated change dates</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in supplies %}
+    <tr>
+      <td>{{ row.supply_type.label }}</td>
+      <td>{% if row.supply %}{{ row.supply.quantity }}{% else %}0{% endif %}</td>
+      <td>
+        {% for change_date in row.change_dates %}{{ change_date }}{% if not forloop.last %}, {% endif %}{% empty %}&mdash;{% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Soonest-expiring insulin boxes</h2>
+{% if boxes %}
+<table>
+  <thead>
+    <tr>
+      <th>Expires</th>
+      <th>Vials remaining</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for box in boxes %}
+    <tr>
+      <td>{{ box.expiration_date }}</td>
+      <td>{{ box.vials_remaining }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No insulin boxes yet.</p>
+{% endif %}
+{% endblock %}

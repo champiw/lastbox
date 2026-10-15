@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
@@ -8,6 +9,11 @@ class SupplyType(models.TextChoices):
 
 
 class InsulinBox(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='insulin_boxes',
+    )
     expiration_date = models.DateField(verbose_name='Expiration Date')
     vials_remaining = models.PositiveSmallIntegerField(
         verbose_name='Vials Remaining',
@@ -24,10 +30,14 @@ class InsulinBox(models.Model):
 
 
 class TrackedSupply(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tracked_supplies',
+    )
     supply_type = models.CharField(
         max_length=10,
         choices=SupplyType.choices,
-        unique=True,
         verbose_name='Supply Type',
     )
     quantity = models.PositiveIntegerField(
@@ -42,6 +52,14 @@ class TrackedSupply(models.Model):
         blank=True,
         verbose_name='Last Used At',
     )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'supply_type'],
+                name='unique_supply_per_user',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.supply_type} (qty: {self.quantity})"
