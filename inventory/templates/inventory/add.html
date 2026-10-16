@@ -1,0 +1,30 @@
+{% extends "inventory/base.html" %}
+
+{% block title %}Add supplies - lastbox{% endblock %}
+
+{% block content %}
+<h2>Add stock</h2>
+
+<form method="post" action="{% url 'add_supply' 'pump_sites' %}">
+  {% csrf_token %}
+  <label for="pump-sites-count">Pump Sites</label>
+  <input id="pump-sites-count" type="number" name="count" min="1" value="1">
+  <button type="submit">Add</button>
+</form>
+
+<form method="post" action="{% url 'add_supply' 'cgms' %}">
+  {% csrf_token %}
+  <label for="cgms-count">CGMs</label>
+  <input id="cgms-count" type="number" name="count" min="1" value="1">
+  <button type="submit">Add</button>
+</form>
+
+<h2>Add insulin box</h2>
+
+<form method="post" action="{% url 'add_box' %}">
+  {% csrf_token %}
+  <label for="expiration-date">Expiration date</label>
+  <input id="expiration-date" type="date" name="expiration_date" min="{{ today }}" required>
+  <button type="submit">Add</button>
+</form>
+{% endblock %}

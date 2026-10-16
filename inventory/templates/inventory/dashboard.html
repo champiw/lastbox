@@ -10,6 +10,7 @@
       <th>Supply</th>
       <th>Quantity</th>
       <th>Estimated change dates</th>
+      <th>Action</th>
     </tr>
   </thead>
   <tbody>
@@ -19,6 +20,16 @@
       <td>{% if row.supply %}{{ row.supply.quantity }}{% else %}0{% endif %}</td>
       <td>
         {% for change_date in row.change_dates %}{{ change_date }}{% if not forloop.last %}, {% endif %}{% empty %}&mdash;{% endfor %}
+      </td>
+      <td>
+        {% if row.supply and row.supply.quantity > 0 %}
+        <form method="post" action="{% url 'use_supply' row.supply.supply_type %}">
+          {% csrf_token %}
+          <button type="submit">Use {{ row.supply_type.label }}</button>
+        </form>
+        {% else %}
+        &mdash;
+        {% endif %}
       </td>
     </tr>
     {% endfor %}
@@ -32,6 +43,7 @@
     <tr>
       <th>Expires</th>
       <th>Vials remaining</th>
+      <th>Action</th>
     </tr>
   </thead>
   <tbody>
@@ -39,6 +51,12 @@
     <tr>
       <td>{{ box.expiration_date }}</td>
       <td>{{ box.vials_remaining }}</td>
+      <td>
+        <form method="post" action="{% url 'use_vial' box.pk %}">
+          {% csrf_token %}
+          <button type="submit">Use 1 vial</button>
+        </form>
+      </td>
     </tr>
     {% endfor %}
   </tbody>
@@ -46,4 +64,6 @@
 {% else %}
 <p>No insulin boxes yet.</p>
 {% endif %}
+
+<p><a href="{% url 'add_supplies' %}">Add supplies</a></p>
 {% endblock %}

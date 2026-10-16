@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
 from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
@@ -453,3 +454,241 @@ class TestDashboardView(UserTestCase):
         response = self.client.get(reverse('dashboard'))
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'bob')
+
+
+def messages_for(response):
+    return [str(m) for m in get_messages(response.wsgi_request)]
+
+
+class TestUseSupply(UserTestCase):
+    def setUp(self):
+        super().setUp()
+        add_stock(self.user, SupplyType.PUMP_SITES, 2)
+        self.client.force_login(self.user)
+        self.url = reverse('use_supply', args=[SupplyType.PUMP_SITES.value])
+
+    def test_decrements_quantity_by_one(self):
+        self.client.post(self.url)
+        supply = TrackedSupply.objects.get(
+            user=self.user, supply_type=SupplyType.PUMP_SITES
+        )
+        self.assertEqual(supply.quantity, 1)
+
+    def test_stamps_last_used_at_with_today(self):
+        self.client.post(self.url)
+        supply = TrackedSupply.objects.get(
+            user=self.user, supply_type=SupplyType.PUMP_SITES
+        )
+        self.assertEqual(supply.last_used_at, timezone.localdate())
+
+    def test_redirects_to_dashboard(self):
+        response = self.client.post(self.url)
+        self.assertRedirects(response, reverse('dashboard'))
+
+    def test_flashes_success_message(self):
+        response = self.client.post(self.url)
+        self.assertTrue(any('Pump Sites' in m for m in messages_for(response)))
+
+    def test_rejects_use_when_quantity_is_zero(self):
+        url = reverse('use_supply', args=[SupplyType.CGMS.value])
+        response = self.client.post(url)
+        supply = TrackedSupply.objects.get(
+            user=self.user, supply_type=SupplyType.CGMS
+        )
+        self.assertEqual(supply.quantity, 0)
+        self.assertTrue(any('no stock remaining' in m for m in messages_for(response)))
+
+    def test_unknown_supply_type_returns_404(self):
+        response = self.client.post(reverse('use_supply', args=['bogus']))
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_is_not_allowed(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 405)
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        self.client.logout()
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('login'), response.url)
+
+
+class TestUseVial(UserTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.box = add_insulin_box(self.user, date.today() + timedelta(days=30))
+
+    def test_decrements_vials_remaining(self):
+        self.client.post(reverse('use_vial', args=[self.box.pk]))
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.vials_remaining, 4)
+
+    def test_redirects_to_dashboard(self):
+        response = self.client.post(reverse('use_vial', args=[self.box.pk]))
+        self.assertRedirects(response, reverse('dashboard'))
+
+    def test_flashes_success_message(self):
+        response = self.client.post(reverse('use_vial', args=[self.box.pk]))
+        self.assertTrue(any('vial' in m.lower() for m in messages_for(response)))
+
+    def test_cannot_use_another_users_box(self):
+        other = User.objects.create_user(username='bob', password='pw')
+        their_box = add_insulin_box(other, date.today() + timedelta(days=10))
+        response = self.client.post(reverse('use_vial', args=[their_box.pk]))
+        their_box.refresh_from_db()
+        self.assertEqual(their_box.vials_remaining, 5)
+        self.assertTrue(any('does not exist' in m for m in messages_for(response)))
+
+    def test_nonexistent_box_flashes_error(self):
+        response = self.client.post(reverse('use_vial', args=[99999]))
+        self.assertTrue(any('does not exist' in m for m in messages_for(response)))
+
+    def test_get_is_not_allowed(self):
+        response = self.client.get(reverse('use_vial', args=[self.box.pk]))
+        self.assertEqual(response.status_code, 405)
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        self.client.logout()
+        response = self.client.post(reverse('use_vial', args=[self.box.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('login'), response.url)
+
+
+class TestAddSuppliesPage(UserTestCase):
+    def test_renders_for_logged_in_user(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('add_supplies'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_redirects_anonymous_user_to_login(self):
+        response = self.client.get(reverse('add_supplies'))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('login'), response.url)
+
+
+class TestAddSupply(UserTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.url = reverse('add_supply', args=[SupplyType.PUMP_SITES.value])
+
+    def test_adds_entered_quantity(self):
+        self.client.post(self.url, {'count': '5'})
+        supply = TrackedSupply.objects.get(
+            user=self.user, supply_type=SupplyType.PUMP_SITES
+        )
+        self.assertEqual(supply.quantity, 5)
+
+    def test_redirects_to_add_page(self):
+        response = self.client.post(self.url, {'count': '1'})
+        self.assertRedirects(response, reverse('add_supplies'))
+
+    def test_flashes_success_message(self):
+        response = self.client.post(self.url, {'count': '5'})
+        self.assertTrue(any('5' in m for m in messages_for(response)))
+
+    def test_rejects_non_numeric_count(self):
+        response = self.client.post(self.url, {'count': 'abc'})
+        supply = TrackedSupply.objects.get(
+            user=self.user, supply_type=SupplyType.PUMP_SITES
+        )
+        self.assertEqual(supply.quantity, 0)
+        self.assertTrue(messages_for(response))
+
+    def test_rejects_negative_count(self):
+        response = self.client.post(self.url, {'count': '-1'})
+        supply = TrackedSupply.objects.get(
+            user=self.user, supply_type=SupplyType.PUMP_SITES
+        )
+        self.assertEqual(supply.quantity, 0)
+        self.assertTrue(messages_for(response))
+
+    def test_unknown_supply_type_returns_404(self):
+        response = self.client.post(reverse('add_supply', args=['bogus']), {'count': '1'})
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_is_not_allowed(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 405)
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        self.client.logout()
+        response = self.client.post(self.url, {'count': '1'})
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('login'), response.url)
+
+
+class TestAddBox(UserTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.url = reverse('add_box')
+
+    def test_creates_box_with_expiration_date(self):
+        exp = date.today() + timedelta(days=30)
+        self.client.post(self.url, {'expiration_date': exp.isoformat()})
+        box = InsulinBox.objects.get(user=self.user)
+        self.assertEqual(box.expiration_date, exp)
+        self.assertEqual(box.vials_remaining, 5)
+
+    def test_redirects_to_add_page(self):
+        exp = date.today() + timedelta(days=30)
+        response = self.client.post(self.url, {'expiration_date': exp.isoformat()})
+        self.assertRedirects(response, reverse('add_supplies'))
+
+    def test_flashes_success_message(self):
+        exp = date.today() + timedelta(days=30)
+        response = self.client.post(self.url, {'expiration_date': exp.isoformat()})
+        self.assertTrue(
+            any(exp.isoformat() in m for m in messages_for(response))
+        )
+
+    def test_rejects_past_expiration_date(self):
+        past = date.today() - timedelta(days=1)
+        response = self.client.post(self.url, {'expiration_date': past.isoformat()})
+        self.assertEqual(InsulinBox.objects.filter(user=self.user).count(), 0)
+        self.assertTrue(any('past' in m for m in messages_for(response)))
+
+    def test_rejects_missing_expiration_date(self):
+        response = self.client.post(self.url, {})
+        self.assertEqual(InsulinBox.objects.filter(user=self.user).count(), 0)
+        self.assertTrue(messages_for(response))
+
+    def test_get_is_not_allowed(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 405)
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        self.client.logout()
+        response = self.client.post(self.url, {'expiration_date': date.today().isoformat()})
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('login'), response.url)
+
+
+class TestDashboardActionControls(UserTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    def test_shows_use_button_when_stock_available(self):
+        add_stock(self.user, SupplyType.PUMP_SITES, 1)
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(
+            response, reverse('use_supply', args=[SupplyType.PUMP_SITES.value])
+        )
+
+    def test_omits_use_button_when_stock_is_empty(self):
+        response = self.client.get(reverse('dashboard'))
+        self.assertNotContains(
+            response, reverse('use_supply', args=[SupplyType.CGMS.value])
+        )
+
+    def test_shows_use_vial_button_for_each_box(self):
+        box = add_insulin_box(self.user, date.today() + timedelta(days=30))
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, reverse('use_vial', args=[box.pk]))
+
+    def test_links_to_add_page(self):
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, reverse('add_supplies'))

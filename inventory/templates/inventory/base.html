@@ -9,6 +9,10 @@
   <header>
     <h1><a href="{% url 'dashboard' %}">lastbox</a></h1>
     {% if user.is_authenticated %}
+      <nav>
+        <a href="{% url 'dashboard' %}">Dashboard</a>
+        <a href="{% url 'add_supplies' %}">Add supplies</a>
+      </nav>
       <span>{{ user.username }}</span>
       <form method="post" action="{% url 'logout' %}">
         {% csrf_token %}
@@ -17,6 +21,13 @@
     {% endif %}
   </header>
   <main>
+    {% if messages %}
+    <ul class="messages">
+      {% for message in messages %}
+      <li class="{{ message.tags }}">{{ message }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 </body>
